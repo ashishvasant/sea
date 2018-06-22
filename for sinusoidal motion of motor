@@ -1,0 +1,201 @@
+float ppr=3360;
+float stp ;//= -3109* (ppr / 360); //setpoint360 deg
+long stpo = 0; //old setpoint
+long sen = 0;
+long seno = 0; //old sensor value
+float pwm = 0; //start
+int intr = 0;
+long diff = 0;
+long timediff = 0;
+float err;
+float lnse = 0;
+float emc = 20;
+/////////////////////////////////////////////////////////////////////
+#include <avr/io.h>
+#include <util/delay.h>
+#include <avr/interrupt.h>
+#include<math.h>
+////////////////////////////
+
+#define p .1 //must be between 0.0003--0.002 every p d
+#define i .1 // muse be between 0.00001---0.0001
+#define d 0
+#define lse 0
+#define minpwm 50
+#define maxpwm 200
+#define softs 0.3
+#define dfrt_de 0
+#define drpin 5
+#define ppin 11
+#define enA 2
+#define enB 3
+#define homem 3
+#define sec 10
+
+#define lse 0
+#define mindev 255 //mininum  pluse difference to set get out of loop;
+
+///////////////////////////////////////
+volatile long count = 0;
+volatile boolean up = 0;
+
+
+ISR (INT0_vect)//digital pin 2
+{
+  if (PIND & (1 << PD2)) //PD2 digital pin 2
+    up = PIND & (1 << PD7) ; //PD4 digital pin 4; pin 4 has some problem so pin3
+  else
+    up = ~(PIND & (1 << PD7));
+
+  if (up)
+  {
+    count--;
+  }
+  else
+  {
+    count++;
+  }
+}
+///////////////////////////////////////////////////////*if you want the motor to go to a particular angle then do stp=3109/360*degrees*/
+int newPosition, oldPosition;
+double pwmp = 9;// this is the PWM pin for the motor for how much we move it to correct for its error
+const int dir1 = 4;//these pins are to control the direction of the motor (clockwise/counter-clockwise)
+const int dir2 = 5;
+void setup() { // Serial.begin(9600);
+   //  stp = stp* (ppr / 360);
+  // put your setup code here, to run once:
+  pinMode(pwmp, OUTPUT);
+  pinMode(dir1, OUTPUT);
+  pinMode(dir2, OUTPUT);
+  pinMode(13,OUTPUT);
+
+  setPwmFrequency(9, 1);
+}
+
+void loop() {long t=millis();
+stp=31090*sin((float)t/1000);
+  int incoming;
+  // check if something coming!
+  /*if (Serial.available() > 0) {
+    // have a look at what's there throw it away if it's not a digit
+    incoming = Serial.peek();
+    // is it a number?
+    if (((incoming >= '0') &&  (incoming <= '9'))||(incoming=='-')) { 
+      stp = Serial.parseInt();
+     
+      
+     
+    } else {
+      // get rid of it, not interesting
+     
+      Serial.print("@"); // show a character for each garbage input
+       stp = stp* (ppr / 360);
+   } 
+  }*/
+ 
+// Serial.println(stp); 
+//Serial.println("count is:");
+//Serial.println(count);
+//Serial.println("error is:");
+ //Serial.println(err);
+  sen = count;
+  err = stp - sen;
+  pwm = pid(err);
+  //Serial.println("pwm= "); Serial.println(pwm);
+
+
+
+  cli();//clears the global interrupt flag
+  EICRA |= 1 << ISC01 | 1 << ISC00; //interrupt occurs at rising edge
+  EIMSK |= 1 << INT0; //interrupt for detecting the pulses from encoder
+  sei();//switch on the interrupts
+
+if(pwm>20){digitalWrite(13,HIGH);
+
+}else{digitalWrite(13,LOW);}
+
+
+//n = newPosition;
+  //  Serial.println(newPosition);
+
+
+
+
+if (err < 0) {//digitalWrite(13,HIGH);
+    digitalWrite(dir1, LOW);// Forward motion
+    digitalWrite(dir2, HIGH);
+  }
+  else
+  { digitalWrite(dir2, LOW);// Forward motion
+    digitalWrite(dir1, HIGH);
+  }
+//  Serial.println("pwm= ");
+  //Serial.println(pwm); 
+  pwm = constrain(pwm, -100, 100);
+ 
+ 
+  analogWrite(pwmp,abs(pwm) );
+
+  
+
+  /* while (1)
+    {
+    //Serial.println(count);
+    // Serial.println("pwm= ");
+    // Serial.println(pwm);
+    //Serial.println("\n");
+    }
+    return 0;*/
+
+}
+void setPwmFrequency(int pin, int divisor) {
+  byte mode;
+  if (pin == 5 || pin == 6 || pin == 9 || pin == 10) {
+    switch (divisor) {
+      case 1: mode = 0x01; break;
+      case 8: mode = 0x02; break;
+      case 64: mode = 0x03; break;
+      case 256: mode = 0x04; break;
+      case 1024: mode = 0x05; break;
+      default: return;
+    }
+    if (pin == 5 || pin == 6) {
+      TCCR0B = TCCR0B & 0b11111000 | mode;
+    } else {
+      TCCR1B = TCCR1B & 0b11111000 | mode;
+    }
+  } else if (pin == 3 || pin == 11) {
+    switch (divisor) {
+      case 1: mode = 0x01; break;
+      case 8: mode = 0x02; break;
+      case 32: mode = 0x03; break;
+      case 64: mode = 0x04; break;
+      case 128: mode = 0x05; break;
+      case 256: mode = 0x06; break;
+      case 1024: mode = 0x07; break;
+      default: return;
+    }
+    TCCR2B = TCCR2B & 0b11111000 | mode;
+  }
+}
+int pid (float e)
+{
+  
+  pwm = p * e;
+
+ // Serial.println(pwm);
+  pwm += (e + lnse) * i;
+  pwm += abs(e - lse) * d;
+  /*if (pwm<0)
+        {pwm=0;};
+         if(pwm<minpwm&&pwm>0)
+           {
+           pwm=minpwm;
+           };
+           if(pwm>maxpwm)
+               {
+               pwm=maxpwm;
+               };not necessary now as constrain is given*/
+
+  return(pwm);
+}
